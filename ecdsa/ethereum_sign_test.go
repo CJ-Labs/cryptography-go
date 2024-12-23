@@ -118,6 +118,35 @@ func Test_EthereumLibSignMultipleMessages(t *testing.T) {
 		v := signature[64]
 		t.Logf("r: %s\n", r)
 		t.Logf("s: %s\n", s)
-		t.Logf("v: %d\n", v)
+		t.Logf("Raw v: %d\n", v)
+		t.Logf("Ethereum v: %d\n", v+27)
+	}
+}
+
+// go test -v -timeout 30s -run ^Test_EthereumLibSignWithChainID$ cryptography/ecdsa
+func Test_EthereumLibSignWithChainID(t *testing.T) {
+	privateKey, err := crypto.HexToECDSA("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	if err != nil {
+		t.Fatalf("Failed to create private key: %v", err)
+	}
+
+	message := "Hello Ethereum!"
+	prefixedMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
+	hash := crypto.Keccak256Hash([]byte(prefixedMessage))
+
+	signature, err := crypto.Sign(hash.Bytes(), privateKey)
+	if err != nil {
+		t.Fatalf("Failed to sign message: %v", err)
+	}
+
+	v := signature[64]
+	t.Logf("Raw v: %d", v)
+	t.Logf("Legacy Ethereum v (v+27): %d", v+27)
+
+	// 展示不同 chainID 的 v 值
+	chainIDs := []uint64{1, 3, 4, 5} // 主网, Ropsten, Rinkeby, Goerli
+	for _, chainID := range chainIDs {
+		eip155V := chainID*2 + 35 + uint64(v)
+		t.Logf("ChainID %d -> EIP-155 v: %d", chainID, eip155V)
 	}
 }
