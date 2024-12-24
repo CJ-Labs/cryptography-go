@@ -21,6 +21,52 @@ var (
 	edL, _ = new(big.Int).SetString("1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed", 16)
 )
 
+// 扭曲爱德华曲线点加法
+func edwardsAdd(x1, y1, x2, y2 *big.Int) (*big.Int, *big.Int) {
+	// x = (x1*y2 + y1*x2)/(1 + d*x1*x2*y1*y2)
+	// y = (y1*y2 - a*x1*x2)/(1 - d*x1*x2*y1*y2)
+
+	// 计算分子和分母
+	x1y2 := new(big.Int).Mul(x1, y2)
+	y1x2 := new(big.Int).Mul(y1, x2)
+	dx1x2y1y2 := new(big.Int).Mul(edD, new(big.Int).Mul(x1y2, y1x2))
+
+	// 计算 x3
+	numerX := new(big.Int).Add(x1y2, y1x2)
+	denomX := new(big.Int).Add(big.NewInt(1), dx1x2y1y2)
+	x3 := new(big.Int).Mul(numerX, new(big.Int).ModInverse(denomX, edP))
+	x3.Mod(x3, edP)
+
+	// 计算 y3
+	y1y2 := new(big.Int).Mul(y1, y2)
+	x1x2 := new(big.Int).Mul(x1, x2)
+	numerY := new(big.Int).Sub(y1y2, x1x2)
+	denomY := new(big.Int).Sub(big.NewInt(1), dx1x2y1y2)
+	y3 := new(big.Int).Mul(numerY, new(big.Int).ModInverse(denomY, edP))
+	y3.Mod(y3, edP)
+
+	return x3, y3
+}
+
+// 标量乘法
+func edwardsScalarMult(x, y *big.Int, scalar []byte) (*big.Int, *big.Int) {
+	resultX := new(big.Int).SetInt64(0)
+	resultY := new(big.Int).SetInt64(1)
+	tempX := new(big.Int).Set(x)
+	tempY := new(big.Int).Set(y)
+
+	for i := 0; i < len(scalar); i++ {
+		for bit := 0; bit < 8; bit++ {
+			if scalar[i]&(1<<uint(bit)) != 0 {
+				resultX, resultY = edwardsAdd(resultX, resultY, tempX, tempY)
+			}
+			tempX, tempY = edwardsAdd(tempX, tempY, tempX, tempY)
+		}
+	}
+
+	return resultX, resultY
+}
+
 // EdDSA密钥对生成
 func generateEdDSAKeyPair() ([]byte, []byte, error) {
 	// 生成随机私钥
@@ -40,9 +86,14 @@ func generateEdDSAKeyPair() ([]byte, []byte, error) {
 	digest[31] |= 64
 
 	// 生成公钥
+	x, y := edwardsScalarMult(edGx, edGy, digest[:32])
+
+	// 编码公钥
 	publicKey := make([]byte, 32)
-	// TODO: 实现 Ed25519 标量乘法
-	// 这里需要实现 Ed25519 的标量乘法来计算 publicKey = digest * G
+	copy(publicKey, x.Bytes())
+	if y.Bit(0) == 1 {
+		publicKey[31] |= 0x80
+	}
 
 	return privateKey, publicKey, nil
 }
@@ -50,15 +101,18 @@ func generateEdDSAKeyPair() ([]byte, []byte, error) {
 // EdDSA签名
 func eddsaSign(privateKey, message []byte) ([]byte, error) {
 	// 1. 生成随机数r
-	r := make([]byte, 64)
 	h := sha512.New()
 	h.Write(privateKey[32:]) // 使用私钥的后半部分
 	h.Write(message)
-	copy(r, h.Sum(nil))
+	r := h.Sum(nil)
 
 	// 2. 计算 R = rB
-	// TODO: 实现点乘运算
+	Rx, Ry := edwardsScalarMult(edGx, edGy, r[:32])
 	R := make([]byte, 32)
+	copy(R, Rx.Bytes())
+	if Ry.Bit(0) == 1 {
+		R[31] |= 0x80
+	}
 
 	// 3. 计算 k = H(R || A || M)
 	h.Reset()
@@ -68,13 +122,18 @@ func eddsaSign(privateKey, message []byte) ([]byte, error) {
 	k := h.Sum(nil)
 
 	// 4. 计算 S = (r + kx) mod L
-	// TODO: 实现模运算
-	S := make([]byte, 32)
+	kInt := new(big.Int).SetBytes(k)
+	rInt := new(big.Int).SetBytes(r[:32])
+	x := new(big.Int).SetBytes(privateKey[:32])
+
+	S := new(big.Int).Mul(kInt, x)
+	S.Add(S, rInt)
+	S.Mod(S, edL)
 
 	// 5. 签名是(R || S)
 	signature := make([]byte, 64)
 	copy(signature[:32], R)
-	copy(signature[32:], S)
+	copy(signature[32:], S.Bytes())
 
 	return signature, nil
 }
@@ -96,10 +155,26 @@ func eddsaVerify(publicKey, message, signature []byte) bool {
 	k := h.Sum(nil)
 
 	// 2. 验证 SB = R + kA
-	// TODO: 实现点运算验证
-	// 这里需要实现 Ed25519 的���运算来验证等式
+	sBx, sBy := edwardsScalarMult(edGx, edGy, S)
 
-	return true
+	// 解码 R 点
+	Rx := new(big.Int).SetBytes(R[:31])
+	Ry := new(big.Int).SetInt64(0)
+	if R[31]&0x80 != 0 {
+		Ry.SetBit(Ry, 0, 1)
+	}
+
+	// 解码公钥点 A
+	Ax := new(big.Int).SetBytes(publicKey[:31])
+	Ay := new(big.Int).SetInt64(0)
+	if publicKey[31]&0x80 != 0 {
+		Ay.SetBit(Ay, 0, 1)
+	}
+
+	kAx, kAy := edwardsScalarMult(Ax, Ay, k)
+	rightX, rightY := edwardsAdd(Rx, Ry, kAx, kAy)
+
+	return sBx.Cmp(rightX) == 0 && sBy.Cmp(rightY) == 0
 }
 
 func Test_EdDSA(t *testing.T) {
