@@ -91,7 +91,7 @@ func Setup(maxDegree int) (*KZG, error) {
 	var tauG2 bn254.G2Affine
 	tauG2.ScalarMultiplication(&g2Gen, tau)
 	kzg.G2Powers[1] = tauG2
-
+	fmt.Println("KZG 初始化完成", kzg)
 	return kzg, nil
 }
 
@@ -128,30 +128,44 @@ func (poly *Polynomial) Evaluate(z *fr.Element) *fr.Element {
 	return result
 }
 
-// Commit 对多项式生成承诺
-// poly: 要承诺的多项式
-// 返回：承诺值和可能的错误
+// Commit 函数对多项式生成承诺
+// 输入: poly - 要承诺的多项式
+// 输出: 承诺值（G1群上的点）和可能的错误
 func (kzg *KZG) Commit(poly *Polynomial) (*Commitment, error) {
+	// 检查多项式次数是否超过最大允许值
+	// MaxDegree+1 是因为次数为 n 的多项式有 n+1 个系数
 	if len(poly.Coefficients) > kzg.MaxDegree+1 {
 		return nil, fmt.Errorf("polynomial degree too high")
 	}
 
+	// 声明最终的承诺值（仿射坐标形式）
 	var commitment bn254.G1Affine
+	// 声明累加器（雅可比坐标形式，用于高效的点加运算）
 	var acc bn254.G1Jac
+	// 初始化累加器为群的单位元
 	acc.Set(&bn254.G1Jac{})
 
-	// 计算 Σ(cᵢ * τⁱG)
+	// 对每个系数计算其对应的项并累加
+	// 计算 C = Σ(cᵢ * [τⁱ]₁)，其中 cᵢ 是多项式系数
 	for i, coeff := range poly.Coefficients {
+		// 临时变量，用于存储中间计算结果
 		var tmp bn254.G1Jac
-		tmp.FromAffine(&kzg.G1Powers[i])
+		// 将 SRS 中的 G1 点转换为雅可比坐标
+		tmp.FromAffine(&kzg.G1Powers[i]) // tmp = [τⁱ]₁
+		// 标量乘法：tmp = cᵢ * [τⁱ]₁
 		tmp.ScalarMultiplication(&tmp, coeff.BigInt(new(big.Int)))
 
+		// 将结果转换为仿射坐标，准备进行混合加法
 		var tmpAffine bn254.G1Affine
 		tmpAffine.FromJacobian(&tmp)
-		acc.AddMixed(&tmpAffine)
+		// 使用混合加法（一个点为仿射坐标，一个为雅可比坐标）
+		// 这比普通加法更高效
+		acc.AddMixed(&tmpAffine) // acc += cᵢ * [τⁱ]₁
 	}
 
+	// 将最终结果从雅可比坐标转换为仿射坐标
 	commitment.FromJacobian(&acc)
+	// 返回承诺值
 	return &Commitment{Value: commitment}, nil
 }
 
