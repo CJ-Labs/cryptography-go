@@ -1,0 +1,19 @@
+{
+  "users": [
+      {
+          "userId": "user1",
+          "asset": {
+              "equity": "1000000000000000000",
+              "debt": "500000000000000000",
+              "collateral": "800000000000000000"
+          }
+      }
+  ],
+  "exchange": {
+      "totalEquity": "1000000000000000000",
+      "totalDebt": "500000000000000000",
+      "totalCollateral": "800000000000000000",
+      "userCount": 1
+  },
+  "batchId": 1
+}
