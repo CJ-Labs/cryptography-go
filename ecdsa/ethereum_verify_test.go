@@ -9,7 +9,7 @@ import (
 
 func Test_generate_ethereum_verify_ecdsa(t *testing.T) {
 	// 生成以太坊地址
-	address := generateEthereumAddressCore()
+	address := generateEthereumAddress()
 	fmt.Println("Ethereum Address:", address)
 
 	// 校验地址是否有效

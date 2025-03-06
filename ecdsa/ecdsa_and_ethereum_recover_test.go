@@ -131,13 +131,13 @@ func Test_RecoverPublicKeyFromRSV(t *testing.T) {
 	message := []byte("Test message")
 
 	// 生成签名
-	r, s, v, err := generateDeterministicSignature(privKey, message)
+	r, s, v, err := ethereumSign(privKey, message)
 	if err != nil {
 		t.Fatalf("Failed to generate signature: %v", err)
 	}
 
 	// 3. 从签名恢复公钥
-	msgHash := hashMessage(message)
+	msgHash := MessageToHash(message)
 	recoveredPubX, recoveredPubY, err := RecoverPublicKeyFromRSV(msgHash[:], r, s, v)
 	if err != nil {
 		t.Fatalf("Failed to recover public key: %v", err)

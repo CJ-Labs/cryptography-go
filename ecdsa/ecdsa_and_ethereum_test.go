@@ -8,10 +8,11 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"golang.org/x/crypto/sha3"
 )
 
 // 生成以太坊地址
-func generateEthereumAddress(pubKeyX, pubKeyY *big.Int) string {
+func PubKeyToEthereumAddress(pubKeyX, pubKeyY *big.Int) string {
 	// 将公钥的 X 和 Y 坐标组合成字节
 	pubKeyBytes := append(pubKeyX.Bytes(), pubKeyY.Bytes()...)
 
@@ -25,7 +26,7 @@ func generateEthereumAddress(pubKeyX, pubKeyY *big.Int) string {
 	return hex.EncodeToString(address)
 }
 
-func generateEthereumAddressCore() string {
+func generateEthereumAddress() string {
 	// 生成 ECDSA 私钥
 	privKey, err := generatePrivateKey()
 	if err != nil {
@@ -35,14 +36,14 @@ func generateEthereumAddressCore() string {
 	pubKeyX, pubKeyY := calculatePublicKey(privKey)
 
 	// 生成以太坊地址
-	address := generateEthereumAddress(pubKeyX, pubKeyY)
+	address := PubKeyToEthereumAddress(pubKeyX, pubKeyY)
 	fmt.Println("Ethereum Address:", address)
 	return address
 }
 
 // 修改签名生成函数
-func generateDeterministicSignature(privateKey *big.Int, message []byte) (*big.Int, *big.Int, uint8, error) {
-	messageHash := hashMessage(message)
+func ethereumSign(privateKey *big.Int, message []byte) (*big.Int, *big.Int, uint8, error) {
+	messageHash := MessageToHash(message)
 
 	// 使用确定性 k 值
 	k := generateDeterministicK(privateKey, messageHash[:])
@@ -64,6 +65,29 @@ func generateDeterministicSignature(privateKey *big.Int, message []byte) (*big.I
 	v := uint8(27 + ry.Bit(0))
 
 	return r, s, v, nil
+}
+
+// 添加新的函数来计算以太坊的消息哈希
+func MessageToHash(message []byte) [32]byte {
+	// 添加以太坊消息前缀
+	prefix := []byte("\x19Ethereum Signed Message:\n")
+	length := fmt.Sprintf("%d", len(message))
+
+	// 组合完整消息
+	msg := append(prefix, []byte(length)...)
+	msg = append(msg, message...)
+
+	// 组合完整消息
+	hash := keccak256(msg)
+	var result [32]byte
+	copy(result[:], hash)
+	return result
+}
+
+func keccak256(data []byte) []byte {
+	hash := sha3.NewLegacyKeccak256()
+	hash.Write(data)
+	return hash.Sum(nil)
 }
 
 // 添加新的函数，用于生成确定性的 k 值
@@ -103,6 +127,7 @@ func generateDeterministicK(privateKey *big.Int, message []byte) *big.Int {
 	return kInt
 }
 
+// 根据消息的哈希值、签名的 r 和 s 值，以及恢复标志 v，计算出签名者的公钥 (qx, qy)。
 // 修改 recoverPublicKey 函数
 func recoverPublicKey(messageHash [32]byte, r, s *big.Int, v uint8) (*big.Int, *big.Int) {
 	// 1. 验证签名参数
@@ -269,13 +294,13 @@ func Test_deterministic_signature(t *testing.T) {
 	message := []byte("Hello, Ethereum!")
 
 	// 第一次签名
-	r1, s1, v1, err := generateDeterministicSignature(privKey, message)
+	r1, s1, v1, err := ethereumSign(privKey, message)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 第二次签名
-	r2, s2, v2, err := generateDeterministicSignature(privKey, message)
+	r2, s2, v2, err := ethereumSign(privKey, message)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +315,7 @@ func Test_deterministic_signature(t *testing.T) {
 
 func Test_generate_ethereum_ecdsa(t *testing.T) {
 	// 生成以太坊地址
-	address := generateEthereumAddressCore()
+	address := generateEthereumAddress()
 	fmt.Println("Ethereum Address:", address)
 }
 
@@ -306,13 +331,13 @@ func Test_signature_recovery_flow(t *testing.T) {
 
 	// 3. 签名消息
 	message := []byte("Test message")
-	r, s, v, err := generateDeterministicSignature(privKey, message)
+	r, s, v, err := ethereumSign(privKey, message)
 	if err != nil {
 		t.Fatalf("Failed to generate signature: %v", err)
 	}
 
 	// 4. 恢复公钥
-	msgHash := hashMessage(message)
+	msgHash := MessageToHash(message)
 	// recoveredPubX, recoveredPubY, err := RecoverPublicKey(msgHash[:], r, s, v)
 	recoveredPubX, recoveredPubY := recoverPublicKey(msgHash, r, s, v)
 	if err != nil {
@@ -332,13 +357,13 @@ func Test_signature_verification(t *testing.T) {
 	pubX, pubY := calculatePublicKey(privKey)
 
 	// 生成签名
-	r, s, v, err := generateDeterministicSignature(privKey, message)
+	r, s, v, err := ethereumSign(privKey, message)
 	if err != nil {
 		t.Fatalf("Failed to generate signature: %v", err)
 	}
 
 	// 验证签名
-	messageHash := hashMessage(message)
+	messageHash := MessageToHash(message)
 	recoveredPubX, recoveredPubY := recoverPublicKey(messageHash, r, s, v)
 
 	if recoveredPubX == nil || recoveredPubY == nil {
@@ -360,10 +385,10 @@ func Test_verify_signature(t *testing.T) {
 
 	// 2. 准备消息
 	message := []byte("Test message")
-	messageHash := hashMessage(message)
+	messageHash := MessageToHash(message)
 
 	// 3. 生成签名
-	r, s, v, err := generateDeterministicSignature(privKey, message)
+	r, s, v, err := ethereumSign(privKey, message)
 	if err != nil {
 		t.Fatalf("Failed to generate signature: %v", err)
 	}

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"testing"
-
-	"golang.org/x/crypto/sha3"
 )
 
 // 椭圆曲线参数（P256）
@@ -121,12 +119,12 @@ func ellipticCurveAdd(x1, y1, x2, y2 *big.Int) (*big.Int, *big.Int) {
 }
 
 // 生成地址
-func generateAddress(publicKeyX, publicKeyY *big.Int) string {
+func PubKeyToAddress(publicKeyX, publicKeyY *big.Int) string {
 	return publicKeyX.Text(16) // 简单使用公钥的 X 值作为地址
 }
 
 // 生成 ECDSA 签名
-func generateSignature(privateKey *big.Int, message []byte) (*big.Int, *big.Int, error) {
+func sign(privateKey *big.Int, message []byte) (*big.Int, *big.Int, error) {
 	// 使用 sha-256 河西函数对输入的消息进行哈希处理，生成一个固定长度的哈希值（32字节）
 	messageHash := sha256.Sum256(message)
 
@@ -204,29 +202,6 @@ func verifySignature(pubKeyX, pubKeyY *big.Int, message []byte, r, s *big.Int) b
 	return v.Cmp(r) == 0
 }
 
-// 添加新的函数来计算以太坊的消息哈希
-func hashMessage(message []byte) [32]byte {
-	// 添加以太坊消息前缀
-	prefix := []byte("\x19Ethereum Signed Message:\n")
-	length := fmt.Sprintf("%d", len(message))
-
-	// 组合完整消息
-	msg := append(prefix, []byte(length)...)
-	msg = append(msg, message...)
-
-	// 组合完整消息
-	hash := keccak256(msg)
-	var result [32]byte
-	copy(result[:], hash)
-	return result
-}
-
-func keccak256(data []byte) []byte {
-	hash := sha3.NewLegacyKeccak256()
-	hash.Write(data)
-	return hash.Sum(nil)
-}
-
 func Test_generate_ecdsa(t *testing.T) {
 	privKey, err := generatePrivateKey() // 生成私钥
 	if err != nil {
@@ -241,11 +216,11 @@ func Test_generate_ecdsa(t *testing.T) {
 	fmt.Println("Public Key X:", pubKeyX.Text(16))
 	fmt.Println("Public Key Y:", pubKeyY.Text(16))
 
-	address := generateAddress(pubKeyX, pubKeyY) // 生成地址
+	address := PubKeyToAddress(pubKeyX, pubKeyY) // 生成地址
 	fmt.Println("Address:", address)
 
 	message := []byte("Hello, Ethereum!") // 生成签名
-	r, s, err := generateSignature(privKey, message)
+	r, s, err := sign(privKey, message)
 
 	if err != nil {
 		t.Errorf("Error generating signature: %v", err)

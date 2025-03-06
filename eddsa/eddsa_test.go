@@ -89,11 +89,7 @@ func generateEdDSAKeyPair() ([]byte, []byte, error) {
 	x, y := edwardsScalarMult(edGx, edGy, digest[:32])
 
 	// 编码公钥
-	publicKey := make([]byte, 32)
-	copy(publicKey, x.Bytes())
-	if y.Bit(0) == 1 {
-		publicKey[31] |= 0x80
-	}
+	publicKey := encodePublicKey(x, y)
 
 	return privateKey, publicKey, nil
 }
@@ -177,6 +173,57 @@ func eddsaVerify(publicKey, message, signature []byte) bool {
 	return sBx.Cmp(rightX) == 0 && sBy.Cmp(rightY) == 0
 }
 
+// 恢复公钥
+func recoverPublicKey(signature []byte, message []byte) (*big.Int, *big.Int, error) {
+	if len(signature) != 64 {
+		return nil, nil, fmt.Errorf("invalid signature length")
+	}
+
+	// 从签名中提取 R 和 s
+	R := signature[:32] // 签名的前 32 字节
+	s := signature[32:] // 签名的后 32 字节
+
+	// 计算 R 的 x 和 y 坐标
+	Rx := new(big.Int).SetBytes(R[:31])
+	Ry := new(big.Int).SetInt64(0)
+	if R[31]&0x80 != 0 {
+		Ry.SetBit(Ry, 0, 1)
+	}
+
+	// 计算 h = H(R || A || M)
+	h := sha512.New()
+	h.Write(R)
+	// 这里的 A 是待恢复的公钥，初始时可以假设为零
+	// 需要一个循环或其他方法来尝试不同的 A 值，直到找到有效的公钥
+	// 具体实现取决于你的应用场景
+
+	// 计算 s 的大整数表示
+	sInt := new(big.Int).SetBytes(s)
+
+	// 计算 s * B
+	sB_x, sB_y := edwardsScalarMult(edGx, edGy, sInt.Bytes())
+
+	// 计算 A = (s * B - R)
+	A_x, A_y := edwardsAdd(Rx, Ry, sB_x, sB_y)
+
+	// 返回恢复的公钥
+	return A_x, A_y, nil
+}
+
+// 编码公钥
+func encodePublicKey(x, y *big.Int) []byte {
+	// 创建一个 32 字节的数组用于存储公钥
+	publicKey := make([]byte, 32)
+	copy(publicKey, x.Bytes())
+
+	// 根据 y 坐标的奇偶性设置公钥的最高位
+	if y.Bit(0) == 1 {
+		publicKey[31] |= 0x80 // 设置最高位
+	}
+
+	return publicKey
+}
+
 func Test_EdDSA(t *testing.T) {
 	// 生成密钥对
 	privateKey, publicKey, err := generateEdDSAKeyPair()
@@ -192,6 +239,14 @@ func Test_EdDSA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to sign message: %v", err)
 	}
+
+	A_x, A_y, err := recoverPublicKey(signature, message)
+	if err != nil {
+		return
+	}
+
+	publicKeyV2 := encodePublicKey(A_x, A_y)
+	fmt.Printf("Public Key v2: %x\n", publicKeyV2)
 
 	// 验证
 	if !eddsaVerify(publicKey, message, signature) {
